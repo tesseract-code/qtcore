@@ -6,105 +6,96 @@ from dataclasses import dataclass
 @dataclass(slots=True, frozen=True)
 class PerfStats:
     """
-    Immutable snapshot of performance metrics for a single monitor window.
+    Immutable snapshot of performance metrics for a processing pipeline.
 
-    All timing values are in milliseconds; fps is in frames per second;
-    cpu_usage_pct is a 0–100 percentage. Produced by
-    PerformanceMonitor.update on every frame.
+    All timing values are in milliseconds; throughput is in items per second;
+    utilisation_pct is a 0–100 percentage. Produced by PerformanceMonitor.update
+    after each processed item.
     """
 
-    frame_count: int
-    fps: float
-    avg_processing_ms: float
-    cpu_usage_pct: float
-    frame_time_ms: float
-    # Time between consecutive frame arrivals (wall-clock cadence).
-    actual_frame_interval_ms: float
-    # Slack time per frame: frame_time - processing_time, floored at 0.
-    idle_time_ms: float
+    total_items: int  # Total number of items processed so far
+    rate: float  # Items per second (throughput)
+    avg_processing_ms: float  # Average processing time per item (ms)
+    utilisation_pct: float  # Fraction of each cycle spent processing (0–100)
+    cycle_time_ms: float  # Total time per item based on current rate (ms)
+    actual_interval_ms: float  # Average wall‑clock time between consecutive completions (ms)
+    idle_time_ms: float  # Slack per cycle = cycle_time - processing_time (>=0)
 
 
 class PerformanceMonitor:
     """
-    Rolling-window performance monitor for a frame-based processing pipeline.
+    Rolling‑window performance monitor for any discrete processing pipeline.
 
-    Tracks throughput (FPS), per-frame processing cost, and CPU utilisation
-    over a sliding window of the most recent window_size frames. Call
-    update() once per processed frame, passing the time spent on that
-    frame; it returns a fresh PerfStats snapshot.
+    Tracks throughput (items/second), per‑item processing cost, and utilisation
+    over a sliding window of the most recent `window_size` items. Call
+    `update()` once after finishing each item, passing the time spent on that
+    item; it returns a fresh `PerfStats` snapshot.
 
     Larger window sizes smooth out spikes; smaller values react faster to
-    changes. Defaults to 30 frames.
+    changes. Default window size is 30 items.
     """
 
     def __init__(self, window_size: int = 30):
         self._window = window_size
-        # Monotonic arrival timestamps (seconds) for FPS calculation.
+        # Monotonic completion timestamps (seconds) for rate calculation.
         self._timestamps: deque[float] = deque(maxlen=window_size)
-        # Per-frame processing durations (ms) for utilisation calculation.
+        # Per‑item processing durations (ms).
         self._proc_times: deque[float] = deque(maxlen=window_size)
-        # Wall-clock timestamp of the most recently processed frame.
-        self.last_frame_timestamp: float | None = None
-        # Cumulative frame counter; never resets.
-        self.frame_count: int = 0
+        # Wall‑clock timestamp of the most recently processed item.
+        self.last_timestamp: float | None = None
+        # Cumulative item counter; never resets.
+        self.item_count: int = 0
 
     def update(self, processing_time_ms: float) -> PerfStats:
         """
-        Record a completed frame and return updated performance statistics.
+        Record a completed item and return updated performance statistics.
 
-        Should be called immediately after finishing work on each frame.
-        The first call returns zeroed FPS/interval metrics because at least
+        Should be called immediately after finishing work on each item.
+        The first call returns zero rate/interval metrics because at least
         two timestamps are required to compute a rate.
         """
-        self.frame_count += 1
+        self.item_count += 1
         now = time.perf_counter()
 
         self._timestamps.append(now)
         self._proc_times.append(processing_time_ms)
-        self.last_frame_timestamp = now
+        self.last_timestamp = now
 
         # --- Throughput -------------------------------------------------------
-        # FPS is derived from the span between the oldest and newest timestamp
-        # in the window rather than from a fixed wall-clock period, so it
-        # adapts automatically as the window fills and rotates.
+        # Rate is derived from the span between the oldest and newest timestamp
+        # in the window, so it adapts automatically as the window fills.
         if len(self._timestamps) < 2:
             # Not enough data yet — return safe zero values.
-            fps = 0.0
+            rate = 0.0
             avg_proc = processing_time_ms
             avg_interval = 0.0
         else:
             duration = self._timestamps[-1] - self._timestamps[0]  # seconds
-            count = len(self._timestamps) - 1                       # intervals
-            fps = count / duration if duration > 0 else 0.0
+            count = len(self._timestamps) - 1  # intervals
+            rate = count / duration if duration > 0 else 0.0
             avg_proc = sum(self._proc_times) / len(self._proc_times)
-            # Convert the per-interval duration to milliseconds.
             avg_interval = (duration * 1000.0) / count if count > 0 else 0.0
 
         # --- Utilisation ------------------------------------------------------
-        # CPU usage is the fraction of each frame slot consumed by processing.
-        # idle_time is the remaining slack; both are derived from the same fps
-        # figure so they are always consistent with each other.
-        if fps > 0:
-            avg_total_frame_time = 1000.0 / fps   # ms available per frame
-            usage_pct = (avg_proc / avg_total_frame_time) * 100.0
-            idle_time = avg_total_frame_time - avg_proc
+        # Utilisation is the fraction of each cycle slot consumed by processing.
+        # idle_time is the remaining slack; both are derived from the same rate.
+        if rate > 0:
+            avg_cycle_time = 1000.0 / rate  # ms available per item
+            utilisation = (avg_proc / avg_cycle_time) * 100.0
+            idle_time = avg_cycle_time - avg_proc
         else:
-            avg_total_frame_time = 0.0
-            usage_pct = 0.0
+            avg_cycle_time = 0.0
+            utilisation = 0.0
             idle_time = 0.0
 
         return PerfStats(
-            frame_count=self.frame_count,
-            fps=fps,
+            total_items=self.item_count,
+            rate=rate,
             avg_processing_ms=avg_proc,
-            # Cap at 100 % — overrun is already visible via idle_time = 0.
-            cpu_usage_pct=min(usage_pct, 100.0),
-            frame_time_ms=avg_total_frame_time,
-            actual_frame_interval_ms=avg_interval,
-            # Floor at 0 to stay consistent with the cpu_usage_pct cap above;
-            # a negative idle time would imply > 100 % usage, which is already
-            # represented by the cap.
-            idle_time_ms=max(idle_time, 0.0),
+            utilisation_pct=min(utilisation, 100.0),  # cap at 100%
+            cycle_time_ms=avg_cycle_time,
+            actual_interval_ms=avg_interval,
+            idle_time_ms=max(idle_time, 0.0),  # floor at 0
         )
 
 
@@ -137,7 +128,7 @@ class HealthMonitor:
                  timeout: float = 1.0,
                  max_failures: int = 3):
         self.check_interval = check_interval
-        self.timeout = timeout           # Exposed for callers to read.
+        self.timeout = timeout  # Exposed for callers to read.
         self.last_success = time.time()  # Initialised so the first window is fair.
         self.consecutive_failures = 0
         self.max_failures = max_failures
@@ -160,7 +151,8 @@ class HealthMonitor:
         """
         # A source is stale if it has been silent for longer than we would
         # expect given the normal check cadence.
-        stale = (time.time() - self.last_success) > (self.check_interval * self.max_failures)
+        stale = (time.time() - self.last_success) > (
+                    self.check_interval * self.max_failures)
         return not stale and self.consecutive_failures < self.max_failures
 
     def should_reconnect(self) -> bool:

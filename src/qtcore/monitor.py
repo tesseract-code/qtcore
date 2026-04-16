@@ -61,7 +61,6 @@ class PerformanceMonitor:
         self._proc_times.append(processing_time_ms)
         self.last_timestamp = now
 
-        # --- Throughput -------------------------------------------------------
         # Rate is derived from the span between the oldest and newest timestamp
         # in the window, so it adapts automatically as the window fills.
         if len(self._timestamps) < 2:
@@ -76,7 +75,6 @@ class PerformanceMonitor:
             avg_proc = sum(self._proc_times) / len(self._proc_times)
             avg_interval = (duration * 1000.0) / count if count > 0 else 0.0
 
-        # --- Utilisation ------------------------------------------------------
         # Utilisation is the fraction of each cycle slot consumed by processing.
         # idle_time is the remaining slack; both are derived from the same rate.
         if rate > 0:
@@ -92,10 +90,10 @@ class PerformanceMonitor:
             total_items=self.item_count,
             rate=rate,
             avg_processing_ms=avg_proc,
-            utilisation_pct=min(utilisation, 100.0),  # cap at 100%
+            utilisation_pct=min(utilisation, 100.0),
             cycle_time_ms=avg_cycle_time,
             actual_interval_ms=avg_interval,
-            idle_time_ms=max(idle_time, 0.0),  # floor at 0
+            idle_time_ms=max(idle_time, 0.0),
         )
 
 

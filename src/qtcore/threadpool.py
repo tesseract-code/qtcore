@@ -14,7 +14,7 @@ from collections import defaultdict
 from concurrent.futures import Future
 from typing import Any, Callable, Dict, List, Optional, Union, Awaitable
 
-from PyQt6.QtCore import QObject, QThreadPool
+from PyQt6.QtCore import QObject, QThreadPool, QRunnable, QThread
 
 from pycore.event import EventTransport, CallbackTransport, EventPayload
 from pycore.jobs import JobStatus, ExecutionMode, JobMetrics
@@ -156,7 +156,7 @@ class ThreadPoolManager(QObject, metaclass=QSingletonMeta):
         with self._jobs_lock:
             self._jobs.pop(job_id, None)
 
-    def _connect_signals(self, worker: QObject) -> None:
+    def _connect_signals(self, worker: QRunnable | QThread) -> None:
         """
         Connect worker signals to manager slots.
         Assumes the worker has a `signals` attribute with Qt signals.

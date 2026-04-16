@@ -14,35 +14,24 @@ from PyQt6 import QtCore
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal, QEventLoop
 from PyQt6.QtWidgets import QApplication
 
-from cross_platform.qt6_utils.qtgui.utils import configure_high_dpi
 from pycore.cpu_utils import set_high_priority
 from pycore.log.instance import with_logger
+from qtcore.utils import configure_high_dpi
 
-# ---------------------------------------------------------------------------
-# Pump tuning
-# ---------------------------------------------------------------------------
 # When tasks are pending the loop is polled at PUMP_ACTIVE_MS.
 # When idle the rate drops to PUMP_IDLE_MS to reduce CPU load.
-PUMP_ACTIVE_MS: int = 5   # ~200 Hz  — keeps UI responsive under async load
-PUMP_IDLE_MS:   int = 50  # ~20 Hz   — background tick when nothing is queued
+PUMP_ACTIVE_MS: int = 5  # ~200 Hz  — keeps UI responsive under async load
+PUMP_IDLE_MS: int = 50  # ~20 Hz   — background tick when nothing is queued
 
-
-# ---------------------------------------------------------------------------
-# Bridge
-# ---------------------------------------------------------------------------
 
 class QtAsyncBridge(QObject):
     """
     Emits Qt signals on the main thread when an asyncio task completes or
     fails.  Must only be constructed after QApplication exists.
     """
-    task_finished = pyqtSignal(str, object)    # (job_id, result)
-    task_failed   = pyqtSignal(str, Exception) # (job_id, exception)
+    task_finished = pyqtSignal(str, object)  # (job_id, result)
+    task_failed = pyqtSignal(str, Exception)  # (job_id, exception)
 
-
-# ---------------------------------------------------------------------------
-# Manager
-# ---------------------------------------------------------------------------
 
 @with_logger
 class QtEventLoopManager:
@@ -66,10 +55,6 @@ class QtEventLoopManager:
 
     _instance: Optional["QtEventLoopManager"] = None
 
-    # ------------------------------------------------------------------
-    # Singleton
-    # ------------------------------------------------------------------
-
     @classmethod
     def instance(cls) -> "QtEventLoopManager":
         if cls._instance is None:
@@ -84,16 +69,12 @@ class QtEventLoopManager:
 
     def _init_fields(self) -> None:
         """Called once by instance() in place of __init__."""
-        self.app:   Optional[QApplication] = None
-        self.loop:  Optional[asyncio.AbstractEventLoop] = None
-        self._timer:  Optional[QTimer] = None
+        self.app: Optional[QApplication] = None
+        self.loop: Optional[asyncio.AbstractEventLoop] = None
+        self._timer: Optional[QTimer] = None
         self._bridge: Optional[QtAsyncBridge] = None
         # job_id -> asyncio.Task, for cancellation and lifecycle tracking
         self._tasks: dict[str, asyncio.Task] = {}
-
-    # ------------------------------------------------------------------
-    # Initialization
-    # ------------------------------------------------------------------
 
     def initialize(self, app: Optional[QApplication] = None) -> None:
         """
@@ -112,29 +93,22 @@ class QtEventLoopManager:
         if self.app is not None:
             return
 
-        # --- Qt application attributes must be set BEFORE QApplication ---
-        # configure_high_dpi() must not create the QApplication internally.
         configure_high_dpi()
         QtCore.QCoreApplication.setAttribute(
             QtCore.Qt.ApplicationAttribute.AA_UseDesktopOpenGL)
 
         self.app = app or QApplication.instance() or QApplication(sys.argv)
-
-        # --- QObject construction is safe now that QApplication exists ----
         self._bridge = QtAsyncBridge()
 
-        # --- Asyncio loop -------------------------------------------------
         # WindowsProactorEventLoopPolicy must be set before creating the loop.
         if sys.platform == "win32":
-            asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+            asyncio.set_event_loop_policy(
+                asyncio.WindowsProactorEventLoopPolicy())
 
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
 
-        # --- Pump timer ---------------------------------------------------
-        # _run_once() drives one iteration of the asyncio loop without
-        # blocking.  Unlike run_until_complete(), it does not start or stop
-        # the loop and is not re-entrant.
+        # Pump timer
         self._timer = QTimer()
         self._timer.setTimerType(QtCore.Qt.TimerType.PreciseTimer)
         self._timer.timeout.connect(self._pump)
@@ -142,10 +116,6 @@ class QtEventLoopManager:
 
         set_high_priority(process_name="MAIN_QAPP")
         self._logger.info("QtEventLoopManager initialized.")
-
-    # ------------------------------------------------------------------
-    # Pump
-    # ------------------------------------------------------------------
 
     def _pump(self) -> None:
         """
@@ -168,15 +138,12 @@ class QtEventLoopManager:
             return
 
         pending = len(asyncio.all_tasks(self.loop))
-        target  = PUMP_ACTIVE_MS if pending else PUMP_IDLE_MS
+        target = PUMP_ACTIVE_MS if pending else PUMP_IDLE_MS
         if self._timer and self._timer.interval() != target:
             self._timer.setInterval(target)
 
-    # ------------------------------------------------------------------
-    # Coroutine scheduling
-    # ------------------------------------------------------------------
-
-    def run_coroutine(self, coro: Awaitable, job_id: Optional[str] = None) -> str:
+    def run_coroutine(self, coro: Awaitable,
+                      job_id: Optional[str] = None) -> str:
         """
         Schedule a coroutine on the main-thread asyncio loop.
 
@@ -205,22 +172,15 @@ class QtEventLoopManager:
             finally:
                 await self._tasks.pop(job_id, None)
 
-        # create_task() is the correct API when already on the loop's thread.
-        # run_coroutine_threadsafe() is only appropriate for cross-thread use.
         task = self.loop.create_task(_wrapped(), name=job_id)
         self._tasks[job_id] = task
         return job_id
 
     def run_coroutine_from_thread(
-        self, coro: Awaitable, job_id: Optional[str] = None
+            self, coro: Awaitable, job_id: Optional[str] = None
     ) -> str:
         """
         Schedule a coroutine from a worker thread.
-
-        Thread-safe.  Uses asyncio.run_coroutine_threadsafe() which is the
-        correct cross-thread primitive.  The returned Future is discarded
-        here; result/error reporting still flows through QtAsyncBridge
-        signals on the main thread.
         """
         if not self.loop:
             raise RuntimeError("QtEventLoopManager has not been initialized.")
@@ -245,7 +205,7 @@ class QtEventLoopManager:
         # map the cancel call through the Future instead.
         task = self.loop.create_future()
         task.cancel = future.cancel  # type: ignore[method-assign]
-        self._tasks[job_id] = task   # type: ignore[assignment]
+        self._tasks[job_id] = task  # type: ignore[assignment]
         return job_id
 
     def cancel_coroutine(self, job_id: str) -> bool:
@@ -268,10 +228,6 @@ class QtEventLoopManager:
             raise RuntimeError("QtEventLoopManager has not been initialized.")
         return self._bridge
 
-    # ------------------------------------------------------------------
-    # Async helpers
-    # ------------------------------------------------------------------
-
     @staticmethod
     async def sleep_async(delay_sec: float) -> None:
         """Non-blocking sleep for use inside coroutines."""
@@ -279,15 +235,15 @@ class QtEventLoopManager:
 
     @staticmethod
     async def wait_until_async(
-        condition: Callable[[], bool],
-        timeout:        float = 5.0,
-        check_interval: float = 0.01,
+            condition: Callable[[], bool],
+            timeout: float = 5.0,
+            check_interval: float = 0.01,
     ) -> bool:
         """
         Poll a condition asynchronously until it returns True.
 
-        Replaces busy-wait loops.  Yields control back to the pump on every
-        iteration so the Qt event loop remains responsive.
+        Yields control back to the pump on every iteration so the Qt event
+        loop remains responsive.
 
         Parameters
         ----------
@@ -308,7 +264,7 @@ class QtEventLoopManager:
         TimeoutError if timeout is exceeded.
         """
         deadline = asyncio.get_event_loop().time() + timeout
-        is_coro  = asyncio.iscoroutinefunction(condition)
+        is_coro = asyncio.iscoroutinefunction(condition)
 
         while True:
             result = (await condition()) if is_coro else condition()
@@ -319,10 +275,6 @@ class QtEventLoopManager:
                     f"Condition not met within {timeout}s timeout."
                 )
             await asyncio.sleep(check_interval)
-
-    # ------------------------------------------------------------------
-    # Synchronous (legacy) helper
-    # ------------------------------------------------------------------
 
     def sleep_blocking(self, timeout_ms: int) -> None:
         """
@@ -340,17 +292,14 @@ class QtEventLoopManager:
             timeout_ms,
         )
         if not self.app:
-            self._logger.warning("No QApplication — falling back to time.sleep().")
+            self._logger.warning(
+                "No QApplication — falling back to time.sleep().")
             time.sleep(timeout_ms / 1000)
             return
 
         loop = QEventLoop()
         QTimer.singleShot(timeout_ms, loop.quit)
         loop.exec()
-
-    # ------------------------------------------------------------------
-    # Shutdown
-    # ------------------------------------------------------------------
 
     def shutdown(self) -> None:
         """
@@ -373,10 +322,12 @@ class QtEventLoopManager:
                     # Drain cancellations — run_until_complete is valid here
                     # because the loop is not running at this point.
                     self.loop.run_until_complete(
-                        asyncio.gather(*self._tasks.values(), return_exceptions=True)
+                        asyncio.gather(*self._tasks.values(),
+                                       return_exceptions=True)
                     )
                 except Exception as exc:
-                    self._logger.warning("Error draining tasks on shutdown: %s", exc)
+                    self._logger.warning("Error draining tasks on shutdown: %s",
+                                         exc)
 
             self.loop.close()
 
@@ -384,9 +335,8 @@ class QtEventLoopManager:
         self._logger.info("QtEventLoopManager shut down.")
 
 
-# ---------------------------------------------------------------------------
+
 # Bootstrap helpers
-# ---------------------------------------------------------------------------
 
 def run_qt_app(main_window_class: type, *args, **kwargs) -> int | None:
     """

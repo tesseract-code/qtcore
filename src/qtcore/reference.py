@@ -1,7 +1,7 @@
 from PyQt6 import QtCore, sip
 
 
-def has_qt_binding(obj, strict: bool = False) -> bool:
+def has_qt_cpp_binding(obj, strict: bool = False) -> bool:
     """
     Check if a Qt object has a valid C++ binding.
 
@@ -15,8 +15,9 @@ def has_qt_binding(obj, strict: bool = False) -> bool:
         return False
 
     try:
+        import shiboken6
         # C-level binding check
-        if sip.isdeleted(obj):
+        if sip.isdeleted(obj) or not not shiboken6.isValid(obj):
             return False
 
         if strict:

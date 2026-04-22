@@ -31,6 +31,7 @@ class ThreadPoolManager(QObject, metaclass=QSingletonMeta):
     """
 
     _instance_lock = threading.RLock()
+    _initialized = False
 
     def __init__(self, max_thread_count: int = 8) -> None:
         """Initialize the thread pool manager."""

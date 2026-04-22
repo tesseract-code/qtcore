@@ -15,6 +15,8 @@ from PyQt6.QtWidgets import QApplication
 
 from pycore.cpu import set_high_priority
 from pycore.log.ctx import with_logger
+from qtcore.app import Application
+from qtcore.threadpool import ThreadPoolManager
 from qtcore.utils import configure_high_dpi
 
 
@@ -43,7 +45,7 @@ class QtEventLoopManager:
         self.loop: Optional[asyncio.AbstractEventLoop] = None
         self._timer: Optional[QTimer] = None
         self._bridge = QtAsyncBridge()
-        # self.pool_manager = ... (Assumed external dependency)
+        self.pool_manager = ThreadPoolManager()
 
     def initialize(self, app: Optional[QApplication] = None):
         """Initialize the Qt Application and the Asyncio Loop."""
@@ -55,21 +57,18 @@ class QtEventLoopManager:
 
         set_high_priority(process_name="MAIN_QAPP")
 
-        self.app = app or QApplication.instance() or QApplication(sys.argv)
+        self.app = app or QApplication.instance() or Application(argv=sys.argv)
 
-        # 1. Setup Asyncio Loop Policy (Windows fix)
+        # Setup Asyncio Loop Policy (Windows fix)
         if sys.platform == 'win32':
             asyncio.set_event_loop_policy(
                 asyncio.WindowsProactorEventLoopPolicy())
-
-        # 2. Create the Loop
+        # Create the Loop
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
-
-        # 3. Inject loop (assuming pool_manager exists)
-        # self.pool_manager.set_event_loop(self.loop)
-
-        # 4. Setup Pump Timer
+        # Inject loop (assuming pool_manager exists)
+        self.pool_manager.set_event_loop(self.loop)
+        # Setup Pump Timer
         # 5ms is aggressive but good for UI responsiveness
         self._timer = QTimer()
         self._timer.timeout.connect(self._process_asyncio_events)

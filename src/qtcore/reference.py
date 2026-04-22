@@ -17,7 +17,7 @@ def has_qt_cpp_binding(obj, strict: bool = False) -> bool:
     try:
         import shiboken6
         # C-level binding check
-        if sip.isdeleted(obj) or not not shiboken6.isValid(obj):
+        if sip.isdeleted(obj) or not shiboken6.isValid(obj):
             return False
 
         if strict:

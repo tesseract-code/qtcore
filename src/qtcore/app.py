@@ -85,9 +85,9 @@ class Application(QApplication):
     def __init__(
             self,
             *,
-            org_name: str,
-            app_name: str,
-            app_version: str,
+            org_name: str = "",
+            app_name: str = "QApp",
+            app_version: str = "0.0.0",
             org_domain: str = "",
             argv: list[str] = None,
     ):

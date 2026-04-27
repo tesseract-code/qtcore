@@ -105,7 +105,6 @@ class Application(QApplication):
         self._register_icon_paths()
         self._set_dock_icon()
 
-
     def _apply_metadata(self) -> None:
         self.setOrganizationName(self.org_name)
         self.setOrganizationDomain(self.org_domain)

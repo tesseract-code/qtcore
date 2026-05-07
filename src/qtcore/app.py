@@ -6,7 +6,6 @@ and icon search-path registration for use with QtEventLoopManager.
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 from typing import Optional
 
 from PyQt6.QtCore import Qt, QTimer, QBuffer
@@ -15,14 +14,6 @@ from PyQt6.QtWidgets import QApplication, QSplashScreen, QWidget
 
 from qtcore.app_style import apply_app_style
 from qtcore.utils import configure_high_dpi
-from svg_icons.paths import LINE_ICONS, FILL_ICONS, OTHER_ICONS
-
-# Map Qt search-path prefix  →  absolute directory
-_ICON_SEARCH_PATHS: dict[str, Path] = {
-    "line-icons": LINE_ICONS,
-    "fill-icons": FILL_ICONS,
-    "other-icons": OTHER_ICONS,
-}
 
 
 def _set_macos_dock_icon(pixmap: QPixmap) -> None:
@@ -103,7 +94,6 @@ class Application(QApplication):
         self._splash: Optional[QSplashScreen] = None
 
         self._apply_metadata()
-        self._register_icon_paths()
         self._set_dock_icon()
 
         apply_app_style(self)
@@ -116,22 +106,6 @@ class Application(QApplication):
 
         if sys.platform == "darwin":
             _set_macos_process_name(self.app_name)
-
-    @staticmethod
-    def _register_icon_paths() -> None:
-        """Register every entry in _ICON_SEARCH_PATHS as a Qt search prefix."""
-        from PyQt6.QtCore import QDir
-
-        for prefix, directory in _ICON_SEARCH_PATHS.items():
-            if directory.exists():
-                QDir.addSearchPath(prefix, str(directory))
-            else:
-                # Non-fatal: warn but keep going so partial installs still work.
-                import warnings
-                warnings.warn(
-                    f"Icon search path for '{prefix}' not found: {directory}",
-                    stacklevel=2,
-                )
 
     def _set_dock_icon(self) -> None:
         """

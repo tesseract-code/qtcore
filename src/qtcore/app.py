@@ -12,7 +12,7 @@ from PyQt6.QtCore import Qt, QTimer, QBuffer
 from PyQt6.QtGui import QIcon, QPixmap, QColor, QPainter, QFont
 from PyQt6.QtWidgets import QApplication, QSplashScreen, QWidget
 
-from qtcore.app_style import apply_app_style
+from qtcore.theme import apply_app_style, Theme
 from qtcore.utils import configure_high_dpi
 
 
@@ -96,7 +96,7 @@ class Application(QApplication):
         self._apply_metadata()
         self._set_dock_icon()
 
-        apply_app_style(self)
+        apply_app_style(self, Theme.DARK)
 
     def _apply_metadata(self) -> None:
         self.setOrganizationName(self.org_name)
